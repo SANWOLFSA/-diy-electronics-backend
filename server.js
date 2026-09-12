@@ -3,6 +3,8 @@
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
+const fs = require('fs');
+const path = require('path');
 const { Pool } = require('pg');
 
 const app = express();
@@ -14,6 +16,25 @@ const pool = new Pool({
   ssl: process.env.DATABASE_URL && process.env.DATABASE_URL.includes('localhost')
     ? false
     : { rejectUnauthorized: false } // required by most managed Postgres hosts (Neon/Supabase/Render)
+});
+
+// ---------------------------------------------------------------------------
+// ADMIN — one-time (or repeatable) database seeding, triggered by visiting
+// a URL from any browser. Protected by ADMIN_SEED_KEY so nobody else can
+// wipe/reset your data. Safe to run more than once — seed.sql uses
+// "ON CONFLICT ... DO UPDATE" so it won't create duplicates.
+// ---------------------------------------------------------------------------
+app.get('/api/admin/seed', async (req, res) => {
+  if (!process.env.ADMIN_SEED_KEY || req.query.key !== process.env.ADMIN_SEED_KEY) {
+    return res.status(401).json({ error: 'Missing or incorrect key. Add ?key=YOUR_KEY to the URL.' });
+  }
+  try {
+    const sql = fs.readFileSync(path.join(__dirname, 'seed.sql'), 'utf8');
+    await pool.query(sql);
+    res.json({ status: 'ok', message: 'Database seeded successfully.' });
+  } catch (err) {
+    res.status(500).json({ status: 'error', detail: err.message });
+  }
 });
 
 // ---------------------------------------------------------------------------
